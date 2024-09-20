@@ -1,0 +1,13 @@
+model{
+
+
+
+  theta ~ dbeta(1,1) # parameter of interest
+
+  for (t in 1:ntrials) {
+  
+    Gfixed[t] ~ dbin(theta, 1)
+    
+  }
+  
+}

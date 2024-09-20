@@ -1,0 +1,16 @@
+model{
+
+
+  alpha ~ dbeta(1,1)
+  theta1 ~ dbeta(1,1) # parameter of interest
+  
+  theta[1] <- theta1
+  
+  for (t in 2:ntrials) {
+  
+    theta[t] <- theta[t-1]^(1/(1+alpha))
+    Glearn[t] ~ dbin(theta[t], 1)
+    
+  }
+  
+}
