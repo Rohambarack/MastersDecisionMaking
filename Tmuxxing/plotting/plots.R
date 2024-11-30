@@ -42,6 +42,8 @@ w_df_t$i_values <- w_df_i$i_values
 w_df_t %>% 
   ggplot(aes(x = t_values, y =i_values)) +
   geom_point() +
+  #lm line
+  geom_smooth(method = "lm")+
   #ref line
   geom_abline(color="red",intercept = 0, slope = 1 ) +
   xlab("True Value") +
