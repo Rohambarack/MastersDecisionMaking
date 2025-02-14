@@ -6,9 +6,7 @@ seed <- as.integer(arg)
 #install.packages("pacman")
 pacman::p_load(tidyverse,hesim, extraDistr, R2jags, parallel,truncnorm)
 # defining a function for calculating the maximum of the posterior density (not exactly the same as the mode)
-MPD <- function(x) {
-  density(x)$x[which(density(x)$y==max(density(x)$y))]
-}
+source("u_functions.R")
 
 #import payoff structure
 payoff <- readRDS("./data/experiment_payoff.rds")
@@ -18,11 +16,11 @@ intervention_2 <- readRDS("./data/inter_2.rds")
 
 inter_scheme <- list(intervention_1,intervention_2)
 #get sim functions
-source("Simulate_bandit.R")
+
 
 
 set.seed(seed)
-n_runs <- 1:24  #12
+n_runs <- 1:20  #12
 ntrials <- 72
 n_subj <-  50 #50
 
@@ -34,13 +32,13 @@ a_sd <- rgamma(1,4,1) #0.01
 beta_mean <- rgamma(1,3,3)#.05 # higher number means more consistent choice behavior (aka. less exploration)
 beta_sd <- rgamma(1,1.5,15) #0.1
   
-inter_mean <- rnorm(1,0.6,0.2) #0.2
+inter_mean <- rnorm(1,0,0.33) #0.2
 inter_sd <- rgamma(1,4,1) #0.05
 
-minor_mean <- rgamma(1,0.6,0.2) #0.3
+minor_mean <- rnorm(1,0,0.33) #0.3
 minor_sd <- rgamma(1,4,1) #0.1
 
-RW_sims <- RW_hier_inter_minor(payoff = payoff,
+RW_sims <- RW_hier_inter_minor_2(payoff = payoff,
                                intervention = inter_scheme[[1]],
                                minority = minority,
                                ntrials = ntrials,
@@ -81,15 +79,15 @@ x <- RW_sims$x
 r <- RW_sims$r
 intervention <- inter_scheme[[i_time]]
 data <- list("x","r","intervention","minority","ntrials","n_subj") 
-params<-c( "a_mean", "a_sd", 
-          "beta_mean", "beta_sd",
-          "inter_mean","inter_sd",
-          "minor_mean","minor_sd")
+params<-c( "a","a_mean", "a_sd", 
+          "b","beta_mean", "beta_sd",
+          "inter","inter_mean","inter_sd",
+          "minor","minor_mean","minor_sd")
 
 
 start_t <- Sys.time() 
 samples_2 <- jags.parallel(data, inits=NULL, params,
-                           model.file ="bandit_model.txt",
+                           model.file ="bandit_model_3.txt",
                            n.chains=3,
                            n.iter=4000,
                            n.burnin=2000,

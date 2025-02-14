@@ -1,8 +1,9 @@
 library(tidyverse)
 library(R2jags)
-
+pacman::p_load(LaplacesDemon)
+source("../u_functions.R")
 ########### read in data and else
-df_real <- read_rds("../c_data.rds")
+df_real <- read_rds("../data/c_data.rds")
 minority <- readRDS("../data/TTB_minority.rds")
 intervention_1 <- readRDS("../data/inter_1.rds")
 intervention_2 <- readRDS("../data/inter_2.rds")
@@ -16,25 +17,7 @@ df_2 <- df_real %>%
 
 #find x for both df_1 and df_2
 ########## wrangle out rewards based on payoff and x
-MPD <- function(x) {
-  density(x)$x[which(density(x)$y==max(density(x)$y))]
-}
-make_x <- function(df){
-  n_subj <- length(unique(df$ID))
-  ntrials <- length(df$ID)/n_subj
-  x_m <- vector("list", n_subj)
-  
-  for(i in 1:n_subj){
-    #separate 1 subject at a time
-    x_1_subj <- df$x[(((i-1)*ntrials)+1):(i*ntrials)]
-    #make it a list of vectors
-    x_m[[i]] <- x_1_subj
-    
-  }
-  x_matrix <- do.call(rbind, x_m)
-  
-  return(x_matrix)
-}
+
 ####################################################
 df_1_x <- make_x(df_1)
 df_2_x <- make_x(df_2)
@@ -73,12 +56,14 @@ params<-c( "a_mean", "a_sd",
            "inter_mean","inter_sd",
            "minor_mean","minor_sd",
            #get individual estimates for inspection
-           "inter","minor","a","b")
+           "inter","minor","a","b",
+           #inspect ind Qs and ps
+           "p","Q")
 
 
 start_t <- Sys.time() 
 samples <- jags.parallel(data, inits=NULL, params,
-                           model.file ="../bandit_model.txt",
+                           model.file ="../bandit_model_3.txt",
                            n.chains=3,
                            n.iter=3000,
                            n.burnin=1000,
@@ -103,12 +88,14 @@ params<-c( "a_mean", "a_sd",
            "inter_mean","inter_sd",
            "minor_mean","minor_sd",
            #get individual estimates for inspection
-           "inter","minor","a","b")
+           "inter","minor","a","b",
+           #inspect ind Qs and ps
+           "p","Q")
 
 
 start_t <- Sys.time() 
 samples_2 <- jags.parallel(data, inits=NULL, params,
-                         model.file ="../bandit_model.txt",
+                         model.file ="../bandit_model_3.txt",
                          n.chains=3,
                          n.iter=3000,
                          n.burnin=1000,
@@ -120,6 +107,14 @@ end_t-start_t
 
 X_2 <- samples_2$BUGSoutput$sims.list
 
+
+#load from rds 
+#
+#write_rds(samples_2,"X2_RW.rds")
+samples <- readRDS("X1_RW.rds")
+samples_2 <- readRDS("X2_RW.rds")
+X_1 <- samples$BUGSoutput$sims.list
+X_2 <- samples_2$BUGSoutput$sims.list
 
 #prior-posterior update checks
 #priors from the model spec
@@ -248,12 +243,221 @@ ests <- vis_estimates %>%
           CI_10 = quantile(values,c(0.1,0.9))[1],
           CI_90 = quantile(values,c(0.1,0.9))[2])
           
+#write_rds(ests,"estimates.rds")
+
+X_1_all_Q <- retrieve_value(X_1$Q,51,72,2)
+X_1_all_p <- retrieve_value(X_1$p,51,72,2)
+X_2_all_Q <- retrieve_value(X_2$Q,48,72,2)
+X_2_all_p <- retrieve_value(X_2$p,48,72,2)
+
+#make it one big df?
+X_1_all_Q <- X_1_all_Q %>% 
+  mutate( 
+          group = "X1_Q")
+X_2_all_Q <- X_2_all_Q %>% 
+  mutate( 
+          group = "X2_Q")
+
+X_1_all_p <- X_1_all_p %>% 
+  mutate(
+          group = "X1_p")
+X_2_all_p <- X_2_all_p %>% 
+  mutate(
+          group = "X2_p")
+
+all_vals <- rbind(X_1_all_Q,X_2_all_Q,X_1_all_p,X_2_all_p)
+
+#mark interventions
+dataInt <- all_vals %>%
+  group_by(group) %>%
+  reframe(Int = n()) %>% 
+  mutate(Int = c(24,24,48,48))
+
+all_vals %>% 
+  ggplot(aes(y = p_val, x = turn, colour = arm, alpha = mu))+
+  geom_point()+
+  scale_alpha_manual(values = c(0.05, 1),
+                     name = "Participant") +
+  geom_vline(data = dataInt, aes(xintercept = Int), col = "black", linetype=2) +
+  scale_color_manual(values = c("#cd7e3c","#3C8BCD"),
+                    name = "Choice") +
+  xlab("Turn")+
+  ylab("Expected Choice Value")+
+  facet_wrap(~group, nrow = 2) +
+  theme_classic()
 
 
-  
-write_rds(ests,"estimates.rds")
-  
-  
-  
-  
-  
+#get 100 posterior predictions from model
+
+homebrew_pp_check(X_1_all_p,df_1) +
+  ggtitle("Posterior Predictions - RW1")
+
+homebrew_pp_check(X_2_all_p,df_2) +
+  ggtitle("Posterior Predictions - RW2")
+
+samples$BUGSoutput$DIC
+samples_2$BUGSoutput$DIC
+
+############# compare ?
+#prediction accuracy for rw
+
+X_1_predictions <- RW_prediction(X_1_all_p,df_1)
+X_2_predictions <- RW_prediction(X_2_all_p,df_2)
+
+X_1_predictions <- X_1_predictions %>% 
+  mutate(model = "X1")
+X_2_predictions <- X_2_predictions %>% 
+  mutate(model = "X2")
+
+all_rw_preds <- rbind(X_1_predictions,X_2_predictions)
+
+
+
+glm_acc <- read_rds("model_glm_acc.rds")
+#write_rds(all_rw_preds,"acc_rw.rds")
+
+glm_df <- tibble(
+  seed = 1:100,
+  acc = glm_acc,
+  model = rep("GLM",100)
+)
+
+all_acc <- rbind(all_rw_preds,glm_df)  
+
+
+all_acc %>% 
+  ggplot(aes(x=seed, y = acc, col = model))+
+  geom_point() +
+  scale_color_manual(values = c("lightgreen","#cd7e3c","#3C8BCD"),
+                     name = "Model") +
+  xlab("seed")+
+  ylab("Accuracy")+
+  theme_classic()
+
+##############
+library(truncnorm)
+rw_ests <- read_rds("estimates.rds")
+#simulated agent behaviour compare
+RW_sims_1 <- RW_hier_inter_minor_2(payoff = payoff,
+                                 intervention = intervention_1,
+                                 minority = minority,
+                                 ntrials = 72,
+                                 n_subj = 51,
+                                 inter_mean = 0.593905122,
+                                 inter_sd = 4.368502261,
+                                 minor_mean = -0.394711144,
+                                 minor_sd = 6.027882718,
+                                 a_mean = 0.011951453,
+                                 a_sd = 3.114872640,
+                                 beta_mean = 0.727404574,
+                                 beta_sd = 0.081167855
+                                 
+)
+
+RW_sims_1_2 <- RW_hier_inter_minor_2(payoff = payoff,
+                                   intervention = intervention_1,
+                                   minority = minority,
+                                   ntrials = 72,
+                                   n_subj = 51,
+                                   inter_mean = 0.593905122,
+                                   inter_sd = 0.15 ,
+                                   minor_mean = -0.394711144,
+                                   minor_sd = 0.15,
+                                   a_mean = 0.011951453,
+                                   a_sd = 3.114872640,
+                                   beta_mean = 3,
+                                   beta_sd = 1
+                                   
+)
+
+RW_sims_2 <- RW_hier_inter_minor_2(payoff = payoff,
+                                     intervention = intervention_2,
+                                     minority = minority,
+                                     ntrials = 72,
+                                     n_subj = 48,
+                                     inter_mean = 0.313868034,
+                                     inter_sd = 6.801948632 ,
+                                     minor_mean = -0.285592135,
+                                     minor_sd = 9.439752530,
+                                     a_mean = 0.004369623,
+                                     a_sd = 5.485124706,
+                                     beta_mean = 0.780873547,
+                                     beta_sd = 0.020412846
+                                     
+)
+
+RW_sims_2_2 <- RW_hier_inter_minor_2(payoff = payoff,
+                                   intervention = intervention_2,
+                                   minority = minority,
+                                   ntrials = 72,
+                                   n_subj = 48,
+                                   inter_mean = 0.313868034,
+                                   inter_sd = 0.15,
+                                   minor_mean = -0.285592135,
+                                   minor_sd = 0.15,
+                                   a_mean = 0.004369623,
+                                   a_sd = 5.485124706,
+                                   beta_mean = 3,
+                                   beta_sd = 01
+                                   
+)
+
+
+#paricipant, turn, arm
+#RW_sims_1$Q[1,1,1]
+RW_sim1_Q <- retrieve_value_sim(RW_sims_1$Q,51,72,2)
+RW_sim1_p <- retrieve_value_sim(RW_sims_1$p,51,72,2)
+RW_sim1_p_2 <- retrieve_value_sim(RW_sims_1_2$p,51,72,2)
+
+RW_sim2_Q <- retrieve_value_sim(RW_sims_2$Q,48,72,2)
+RW_sim2_p <- retrieve_value_sim(RW_sims_2$p,48,72,2)
+RW_sim2_p_2 <- retrieve_value_sim(RW_sims_2_2$p,48,72,2)
+
+#make it one big df?
+RW_sim1_Q <- RW_sim1_Q %>% 
+  mutate( 
+    group = "X1_Q")
+RW_sim1_p  <- RW_sim1_p  %>% 
+  mutate( 
+    group = "X1_p")
+
+RW_sim1_p_2  <- RW_sim1_p_2  %>% 
+  mutate( 
+    group = "X1_p_2")
+
+################
+RW_sim2_Q <- RW_sim2_Q %>% 
+  mutate( 
+    group = "X2_Q")
+RW_sim2_p  <- RW_sim2_p  %>% 
+  mutate( 
+    group = "X2_p")
+
+RW_sim2_p_2  <- RW_sim2_p_2  %>% 
+  mutate( 
+    group = "X2_p_2")
+####################
+
+all_sim_vals <- rbind(RW_sim1_Q,RW_sim1_p,RW_sim1_p_2,
+                      RW_sim2_Q,RW_sim2_p,RW_sim2_p_2)
+
+#mark interventions
+dataInt <- all_sim_vals %>%
+  group_by(group) %>%
+  reframe(Int = n()) %>% 
+  mutate(Int = c(24,24,24,
+                 48,48,48))
+
+all_sim_vals %>% 
+  ggplot(aes(y = p_val, x = turn, colour = arm, alpha = mu))+
+  geom_point()+
+  scale_alpha_manual(values = c(0.05, 1),
+                     name = "Participant") +
+  geom_vline(data = dataInt, aes(xintercept = Int), col = "black", linetype=2) +
+  scale_color_manual(values = c("#cd7e3c","#3C8BCD"),
+                     name = "Choice") +
+  xlab("Turn")+
+  ylab("Expected Choice Value")+
+  facet_wrap(~group, nrow = 2) +
+  theme_classic()
+

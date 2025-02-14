@@ -1,8 +1,8 @@
 ##############read in data
 library(tidyverse)
 library(stringr)
-list_of_files <- list.files("../results_np")
-path <- "../results_np"
+list_of_files <- list.files("../results_glm")
+path <- "../results_glm"
 
 counting <- 1
 for (i in list_of_files){

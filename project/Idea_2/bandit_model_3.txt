@@ -1,0 +1,60 @@
+model {
+
+  a_mean ~ dunif(0,1)
+  a_sd ~ dgamma(3,3)
+  beta_mean ~ dgamma(3,3)
+  beta_sd ~ dgamma(3,15)
+  
+  inter_mean ~ dnorm(0,1)
+  inter_sd ~ dgamma(4,1)
+  
+  minor_mean ~ dnorm(0,1)
+  minor_sd ~ dgamma(4,1)
+  
+  for (s in 1:n_subj){
+    #set priors for initial values of Q and p
+    Q[s,1,1] ~ dbeta(5,1)
+    Q[s,1,2] ~ dbeta(7,5)
+    exp_p[s,1,1] <- exp(beta[s] * Q[s,1,1])
+    exp_p[s,1,2] <- exp(beta[s] * Q[s,1,2])
+    
+   for (t in 1){
+  
+      for (k in 1:2) {
+        p[s,t,k] <- exp_p[s,t,k]/sum(exp_p[s,t,])
+      }
+    }
+    
+    
+    #estimate participant level alpha and beta and the rest
+    a[s] ~ dnorm(a_mean,a_sd)T(0,1)
+    beta[s] ~ dnorm(beta_mean,beta_sd)T(0,)
+    inter[s] ~ dnorm(inter_mean,inter_sd)
+    minor[s] ~ dnorm(minor_mean,minor_sd)
+    
+    for (t in 2:ntrials) {
+      
+      for (k in 1:2) {
+      
+        #update utility for chosen option only, with reward on last trial
+        #unchosen option stays same
+        
+        Qupdate[s,t,k] <- Q[s,t-1,k] + (a[s]*(r[s,t-1]-Q[s,t-1,k]))
+        
+        Q[s,t,k] <- ifelse(k==x[s,t-1],Qupdate[s,t,k],Q[s,t-1,k]) 
+        
+        exp_p[s,t,k] <- exp(beta[s]*ifelse(k==1,
+                                           Q[s,t,k]+(intervention[t]*inter[s])+(minority[t]*minor[s]),
+                                           Q[s,t,k]))
+      }
+  
+      for (k in 1:2) {
+        p[s,t,k] <- exp_p[s,t,k]/sum(exp_p[s,t,])
+      }
+      
+      x[s,t] ~ dcat(p[s,t,])
+      
+    }
+
+  }
+}
